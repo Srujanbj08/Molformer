@@ -267,7 +267,7 @@ async def load_model():
         print(f"✓ Model loaded successfully!")
         
         # Load config
-        config_path = './working/preprocessed_qm9_data/config.pkl'
+        config_path = './working/config.pkl'
         with open(config_path, 'rb') as f:
             config = pickle.load(f)
         print(f"✓ Config loaded: {len(config['target_properties'])} properties")
