@@ -286,7 +286,7 @@ async def load_model():
         api_key = os.getenv('GEMINI_API_KEY')
         if api_key:
             genai.configure(api_key=api_key)
-            gemini_model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            gemini_model = genai.GenerativeModel('gemini-2.5-flash-lite')
             print(f"✓ Gemini chatbot configured!")
         else:
             print(f"⚠️  Gemini API key not found - chatbot disabled")
