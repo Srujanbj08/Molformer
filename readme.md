@@ -1,213 +1,231 @@
-📘 README.md (Complete Project — Backend + Frontend)
+🌟 Molecular Property Prediction & Visualization Platform
+Transformer-Powered Molecular Analysis | React + FastAPI + 2D/3D Visualization + Gemini Chatbot
 
-# 🌟 Molecular Property Prediction & Chemistry Assistant  
-AI-powered Transformer model + React frontend for molecular property prediction and chemistry chatbot.
+This is a complete full-stack molecular analysis system that allows users to:
 
-This project combines **FastAPI**, **PyTorch**, **RDKit**, **Gemini API**, and a **React + Vite frontend** to create a full-stack application for:
-- Predicting **19 molecular quantum-chemical properties** from SMILES  
-- Displaying molecular information (formula, weight, rings, bonds, aromaticity)  
-- Chatting with an AI-based chemistry assistant  
-- Fingerprint-based feature extraction via **Morgan fingerprints**  
-- Visualization of prediction results in a beautiful frontend UI  
+🔬 Predict 19 quantum-chemical properties from a SMILES string
 
----
+🧪 View detailed molecule information (formula, MW, rings, bonds, aromaticity)
 
-## 🚀 Tech Stack Overview
+🎨 Visualize the molecule in 2D (CACTUS API)
 
-### **Backend**
-- **FastAPI**
-- **PyTorch** (Custom Transformer Regressor)
-- **RDKit**
-- **Scikit-learn**
-- **Uvicorn**
-- **Google Gemini API** (Chemistry Chatbot)
-- **dotenv**
-- **pickle-based scalers + config**
+🧬 Visualize the molecule in 3D (3Dmol.js)
 
-### **Frontend**
-- **React (Vite)**
-- **JavaScript / TypeScript (optional)**
-- **Axios**
-- **Tailwind / CSS (depending on your setup)**
-- **Beautiful UI components for predictions & chat**
+🤖 Chat with an AI chemistry assistant (Gemini-2.5-flash-lite)
 
----
+⚡ Enjoy a beautiful UI with animations and smooth workflows
 
-## 📁 Folder Structure
+🚀 Deployment Links
+✅ Frontend (Vercel)
 
+🔗 https://molformer.vercel.app/
 
+✅ Backend (Render)
 
+Prediction API
+➡️ https://molformer.onrender.com/predict
+
+Chat API
+➡️ https://molformer.onrender.com/chat
+
+📁 Project Structure
 project-root/
 │
 ├── backend/
 │   ├── api.py
 │   ├── requirements.txt
-│   ├── .env  ← (Add your keys here)
+│   ├── .env
 │   ├── best_transformer_model.pth
 │   ├── working/
 │   │   ├── config.pkl
 │   │   ├── scaler_X.pkl
 │   │   ├── scaler_y.pkl
 │   │   └── best_transformer_model.pth
-│   └── moltransformer/ (if any utils)
 │
-└── frontend/
-├── src/
-├── public/
-├── index.html
-├── vite.config.js
-├── package.json
-└── README (default from Vite)
+├── frontend/
+│   ├── public/
+│   ├── src/
+│   │   ├── assets/
+│   │   ├── components/
+│   │   │   ├── ChemicalChatbot.jsx
+│   │   │   ├── Footer.jsx
+│   │   │   ├── Header.jsx
+│   │   │   ├── Molecule2D.jsx
+│   │   │   ├── Molecule3D.jsx
+│   │   │   └── ResultsCard.jsx
+│   │   ├── App.jsx
+│   │   ├── App.css
+│   │   ├── index.css
+│   │   └── main.jsx
+│   ├── package.json
+│   ├── vite.config.js
+│   └── README.md
+│
+└── notebook.ipynb   ← Your training notebook (kept outside backend/frontend)
 
-
-
----
-
-## 🔧 Backend Setup (FastAPI)
-
-### **1️⃣ Create virtual environment**
-```sh
+🔧 Local Development — Backend (FastAPI)
+1️⃣ Create virtual environment
 cd backend
 python -m venv venv
-venv\Scripts\activate   # Windows
-
+venv\Scripts\activate  # Windows
 
 2️⃣ Install dependencies
 pip install -r requirements.txt
 
 3️⃣ Add environment variables
-Create .env inside backend folder:
-GEMINI_API_KEY=your_new_key_here
 
+Create a .env file inside backend:
 
-⚠️ Note: Update the key when expired.
+GEMINI_API_KEY=your_key_here
 
-4️⃣ Run backend
+4️⃣ Run the backend
 uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 
-Backend docs available at:
+
+The docs will be available at:
 👉 http://localhost:8000/docs
 
-🎨 Frontend Setup (React + Vite)
+🎨 Local Development — Frontend (React + Vite)
 1️⃣ Install dependencies
 cd frontend
 npm install
 
-2️⃣ Start development server
+2️⃣ Start the dev server
 npm run dev
 
-The frontend usually runs at:
-👉 http://localhost:5173
 
-🔌 Connecting Frontend + Backend
-Inside your frontend code, API base URL should be:
-http://localhost:8000
+Frontend runs at:
+👉 http://localhost:5173/
 
-Endpoints used:
+🔌 Connecting Frontend to Backend
+
+Your frontend normally uses the deployed backend URLs:
+
+https://molformer.onrender.com/predict
+https://molformer.onrender.com/chat
 
 
+But for local testing, change them to:
+
+http://localhost:8000/predict
+http://localhost:8000/chat
+
+🛠 Where to Change URLs in the Code
+✅ 1. Change API URL in frontend/src/App.js
+
+Locate this block:
+
+const response = await fetch('https://molformer.onrender.com/predict', {
+
+
+Replace with:
+
+const response = await fetch('http://localhost:8000/predict', {
+
+
+Switch back to Render URL when deploying.
+
+✅ 2. Change Chatbot URL in frontend/src/components/ChemicalChatbot.jsx
+
+Look for:
+
+const response = await fetch("https://molformer.onrender.com/chat", {
+
+
+Replace with:
+
+const response = await fetch("http://localhost:8000/chat", {
+
+🧪 API Endpoints
 POST /predict
 
+Input:
 
-POST /chat
-
-
-GET /properties
-
-
-GET /health
-
-
-
-🧪 API Reference
-POST /predict
-Send:
 {
   "smiles": "CCO"
 }
 
-Response:
 
+Returns:
 
-molecular info
+Molecular info
 
+19 quantum-chemical properties
 
-19 predicted properties
+Confidence score
 
-
-confidence score
-
-
+Clean SMILES
 
 POST /chat
-Send:
+
+Input:
+
 {
   "message": "Explain benzene",
   "history": []
 }
 
-Response:
 
+Returns:
 
-AI chemistry explanation generated via Gemini
+Chemistry explanation generated by Gemini-2.5-flash-lite
 
+📊 Model Predictions
 
-
-✔️ /health, /, /properties
-Support endpoints for debugging.
-
-📊 Supported Properties
-Your model predicts:
-
+The Transformer predicts 19 QM-style molecular properties, including:
 
 Rotational constants (A, B, C)
 
-
 Dipole moment
-
 
 Polarizability
 
+HOMO, LUMO, GAP
 
-HOMO
+Internal energies (U0, U298)
 
+Enthalpy (H298)
 
-LUMO
+Free energy (G298)
 
-
-HOMO–LUMO gap
-
-
-Energies (U0, U298, H298, G298)
-
+Heat capacity
 
 Atomization energies
 
+All properties are displayed cleanly in the ResultsCard UI.
 
-Heat capacity
-… and more (total 19 properties).
+🎥 2D & 3D Molecule Visualization
+2D Viewer
 
+Uses CACTUS API
 
+Fetches chemical diagram PNG
 
+Download button included
 
+3D Viewer
 
-🤝 Contributing
-Feel free to open issues or submit PRs to improve prediction UI or add new molecular features.
+Uses 3Dmol.js
 
-📜 License
-MIT License – free to use & modify.
+Fetches SDF from PubChem → fallback CACTUS
+
+Auto-rotation enabled
+
+Reset view button
+
+Displays IUPAC name if available
+
+🤖 Chemistry Chatbot
+
+Uses Gemini-2.5-flash-lite
+
+Explains predicted properties
+
+Interprets SMILES
+
+Answers chemistry questions
 
 ❤️ Credits
-Created by Srujan
-AI Chemistry + ML + Full-Stack Project
 
----
-
-If you want, I can also:
-
-✨ Add screenshot sections with your real images  
-✨ Make a **fancy GitHub profile-style README**  
-✨ Create a **logo** for your repo  
-✨ Add badges (build, license, tech stack, stars, forks)
-
-Just tell me — I’m here for all the vibes 😄
+Made by Srujan
+Full-stack Molecular ML + Visualization
