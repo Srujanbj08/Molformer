@@ -19,8 +19,11 @@ This is a complete full-stack molecular analysis system that allows users to:
 🔗 [https://molformer.vercel.app/](https://molformer.vercel.app/)
 
 ### ✅ Backend (Render)
-- **Prediction API** ➡️ [https://molformer.onrender.com/predict](https://molformer.onrender.com/predict)
-- **Chat API** ➡️ [https://molformer.onrender.com/chat](https://molformer.onrender.com/chat)
+- ✅ Backend (Render)
+
+---
+API Documentation ➡️ https://molformer.onrender.com/docs
+
 
 ---
 
