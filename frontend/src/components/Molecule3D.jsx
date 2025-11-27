@@ -8,158 +8,168 @@ export default function Molecule3D({ smiles = 'CCO' }) {
   const [error, setError] = useState(null);
   const [moleculeName, setMoleculeName] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [scriptReady, setScriptReady] = useState(false);
+  const mountedRef = useRef(true);
 
   const cleanSmiles = smiles ? smiles.split(/\s+/)[0] : 'CCO';
 
-  // Check if 3Dmol is loaded
   useEffect(() => {
-    const checkScript = () => {
-      if (window.$3Dmol) {
-        setScriptReady(true);
-        return true;
-      }
-      return false;
-    };
-
-    // Check immediately
-    if (checkScript()) return;
-
-    // Poll for script loading
-    const interval = setInterval(() => {
-      if (checkScript()) {
-        clearInterval(interval);
-      }
-    }, 100);
-
-    // Timeout after 10 seconds
-    const timeout = setTimeout(() => {
-      clearInterval(interval);
-      if (!window.$3Dmol) {
-        setError('Failed to load 3D visualization library');
-        setIsLoading(false);
-      }
-    }, 10000);
-
+    mountedRef.current = true;
     return () => {
-      clearInterval(interval);
-      clearTimeout(timeout);
+      mountedRef.current = false;
     };
   }, []);
 
   useEffect(() => {
-    if (!scriptReady || !containerRef.current) {
-      return;
-    }
+    if (!containerRef.current) return;
 
     let viewer;
-    let isMounted = true;
     let rotateInterval;
+    let scriptCheckAttempts = 0;
+    const maxScriptCheckAttempts = 50; // 5 seconds
+
+    const checkScriptLoaded = () => {
+      return new Promise((resolve, reject) => {
+        const checkInterval = setInterval(() => {
+          scriptCheckAttempts++;
+          
+          if (window.$3Dmol) {
+            clearInterval(checkInterval);
+            resolve(true);
+          } else if (scriptCheckAttempts >= maxScriptCheckAttempts) {
+            clearInterval(checkInterval);
+            reject(new Error('3Dmol.js failed to load'));
+          }
+        }, 100);
+      });
+    };
 
     const loadMolecule = async () => {
-      setIsLoading(true);
-      setError(null);
-
       try {
-        // Wait for container to have dimensions
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        if (!isMounted || !containerRef.current) return;
+        setIsLoading(true);
+        setError(null);
 
-        // Check container has dimensions
+        // Wait for script to load
+        await checkScriptLoaded();
+        
+        if (!mountedRef.current) return;
+
+        // Small delay to ensure container is ready
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        if (!mountedRef.current || !containerRef.current) return;
+
+        // Verify container dimensions
         const rect = containerRef.current.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) {
-          throw new Error('Container not ready');
+        if (rect.width < 10 || rect.height < 10) {
+          throw new Error('Container not properly sized');
         }
 
-        // Clear any existing content
+        // Clear container
         containerRef.current.innerHTML = '';
 
-        // Create viewer
-        viewer = window.$3Dmol.createViewer(containerRef.current, {
+        // Create viewer with config
+        const config = {
           backgroundColor: 'white',
           antialias: true,
-        });
+        };
+
+        viewer = window.$3Dmol.createViewer(containerRef.current, config);
         viewerRef.current = viewer;
 
-        // Fetch molecule data
-        const molData = await tryMultipleSources(cleanSmiles);
-        if (!molData) {
-          throw new Error('Could not fetch 3D structure from any source');
-        }
+        // Try to fetch 3D structure
+        const molData = await fetchMoleculeData(cleanSmiles);
         
-        if (!isMounted) return;
+        if (!mountedRef.current) return;
 
-        // Add model and style
+        if (!molData) {
+          throw new Error('Could not fetch 3D structure. The molecule may not have 3D coordinates available.');
+        }
+
+        // Add model
         viewer.addModel(molData, 'sdf');
+        
+        // Set style
         viewer.setStyle({}, {
-          stick: { colorscheme: 'Jmol', radius: 0.15 },
-          sphere: { scale: 0.25 }
+          stick: { 
+            colorscheme: 'Jmol', 
+            radius: 0.15 
+          },
+          sphere: { 
+            scale: 0.25 
+          }
         });
+
+        // Zoom and render
         viewer.zoomTo();
         viewer.render();
 
-        // Smooth rotation animation
+        // Animate rotation
         let angle = 0;
         rotateInterval = setInterval(() => {
-          if (!isMounted || !viewer) {
+          if (!mountedRef.current || !viewer) {
             clearInterval(rotateInterval);
             return;
           }
           viewer.rotate(1, 'y');
           viewer.render();
           angle += 1;
-          if (angle >= 360) clearInterval(rotateInterval);
+          if (angle >= 360) {
+            clearInterval(rotateInterval);
+          }
         }, 50);
 
-        // Fetch molecule name (non-blocking)
+        // Fetch name (non-blocking)
         fetchMoleculeName(cleanSmiles);
 
-        setError(null);
         setIsLoading(false);
+        setError(null);
+
       } catch (err) {
-        console.error('3D loading error:', err);
-        if (isMounted) {
-          setError('Failed to load 3D structure');
+        console.error('3D Molecule loading error:', err);
+        if (mountedRef.current) {
+          setError(err.message || 'Failed to load 3D structure');
           setIsLoading(false);
         }
       }
     };
 
-    const tryMultipleSources = async (smilesStr) => {
+    const fetchMoleculeData = async (smilesStr) => {
       const sources = [
+        {
+          url: `https://cactus.nci.nih.gov/chemical/structure/${encodeURIComponent(smilesStr)}/file?format=sdf&get3d=true`,
+          name: 'NCI Cactus'
+        },
         {
           url: `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smilesStr)}/record/SDF?record_type=3d`,
           name: 'PubChem'
-        },
-        {
-          url: `https://cactus.nci.nih.gov/chemical/structure/${encodeURIComponent(smilesStr)}/file?format=sdf&get3d=true`,
-          name: 'Cactus'
         }
       ];
 
       for (const source of sources) {
         try {
+          console.log(`Trying to fetch from ${source.name}...`);
+          
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 8000);
-          
-          const response = await fetch(source.url, { 
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+          const response = await fetch(source.url, {
             signal: controller.signal,
-            mode: 'cors'
           });
-          
+
           clearTimeout(timeoutId);
-          
+
           if (response.ok) {
             const data = await response.text();
-            if (data && (data.includes('V2000') || data.includes('V3000'))) {
+            if (data && data.length > 100 && (data.includes('V2000') || data.includes('V3000'))) {
+              console.log(`Successfully fetched from ${source.name}`);
               return data;
             }
           }
         } catch (err) {
-          console.warn(`Failed to fetch from ${source.name}:`, err.message);
+          console.warn(`${source.name} failed:`, err.message);
         }
       }
+
       return null;
     };
 
@@ -167,17 +177,17 @@ export default function Molecule3D({ smiles = 'CCO' }) {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
-        
-        const nameResponse = await fetch(
+
+        const response = await fetch(
           `https://cactus.nci.nih.gov/chemical/structure/${encodeURIComponent(smilesStr)}/iupac_name`,
           { signal: controller.signal }
         );
-        
+
         clearTimeout(timeoutId);
-        
-        if (nameResponse.ok) {
-          const name = await nameResponse.text();
-          if (name && !name.includes('Page not found') && isMounted) {
+
+        if (response.ok) {
+          const name = await response.text();
+          if (name && !name.toLowerCase().includes('not found') && mountedRef.current) {
             setMoleculeName(name.trim());
           }
         }
@@ -189,14 +199,14 @@ export default function Molecule3D({ smiles = 'CCO' }) {
     loadMolecule();
 
     return () => {
-      isMounted = false;
+      mountedRef.current = false;
       if (rotateInterval) clearInterval(rotateInterval);
       if (containerRef.current) {
         containerRef.current.innerHTML = '';
       }
       viewerRef.current = null;
     };
-  }, [cleanSmiles, scriptReady]);
+  }, [cleanSmiles]);
 
   const handleResetView = () => {
     if (viewerRef.current) {
@@ -227,20 +237,21 @@ export default function Molecule3D({ smiles = 'CCO' }) {
           </button>
         </div>
       </div>
-      
+
       <div className="flex-1 p-6 flex flex-col" style={{ minHeight: '400px' }}>
         {isLoading ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500 mx-auto mb-2"></div>
               <p className="text-sm text-gray-600">Loading 3D structure...</p>
+              <p className="text-xs text-gray-500 mt-1">This may take a moment</p>
             </div>
           </div>
         ) : error ? (
           <div className="flex-1 flex items-center justify-center text-red-500 text-center px-4">
             <div>
               <p className="font-semibold mb-2">{error}</p>
-              <p className="text-sm text-gray-600">Try a different molecule or check your connection</p>
+              <p className="text-sm text-gray-600">Some molecules may not have 3D data available</p>
             </div>
           </div>
         ) : (
@@ -248,21 +259,19 @@ export default function Molecule3D({ smiles = 'CCO' }) {
             <div
               ref={containerRef}
               className="flex-1 w-full rounded-lg overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 border border-gray-200"
-              style={{ minHeight: '300px', position: 'relative' }}
+              style={{ minHeight: '300px' }}
             />
-            {moleculeName || cleanSmiles ? (
-              <div className="mt-4 text-center space-y-2 pt-4 border-t">
-                {moleculeName && (
-                  <p className="text-sm font-medium text-gray-800">{moleculeName}</p>
-                )}
-                <p className="text-xs text-gray-600">
-                  <span className="font-semibold">SMILES:</span>{' '}
-                  <code className="bg-gray-100 px-2 py-1 rounded text-indigo-600 break-all">
-                    {cleanSmiles}
-                  </code>
-                </p>
-              </div>
-            ) : null}
+            <div className="mt-4 text-center space-y-2 pt-4 border-t">
+              {moleculeName && (
+                <p className="text-sm font-medium text-gray-800">{moleculeName}</p>
+              )}
+              <p className="text-xs text-gray-600">
+                <span className="font-semibold">SMILES:</span>{' '}
+                <code className="bg-gray-100 px-2 py-1 rounded text-indigo-600 break-all">
+                  {cleanSmiles}
+                </code>
+              </p>
+            </div>
           </>
         )}
       </div>
