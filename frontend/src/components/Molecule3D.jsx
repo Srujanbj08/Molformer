@@ -9,23 +9,14 @@ export default function Molecule3D({ smiles = 'CCO' }) {
   const [moleculeName, setMoleculeName] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [useFallback, setUseFallback] = useState(false);
-  const mountedRef = useRef(true);
+  const timeoutRef = useRef(null);
 
   const cleanSmiles = smiles ? smiles.split(/\s+/)[0] : 'CCO';
 
   useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    let viewer;
-    let rotateInterval;
-    let loadingTimeout;
+    let isMounted = true;
+    let viewer = null;
+    let rotateInterval = null;
 
     const loadMolecule = async () => {
       try {
@@ -33,56 +24,66 @@ export default function Molecule3D({ smiles = 'CCO' }) {
         setError(null);
         setUseFallback(false);
 
-        // Set a timeout - if loading takes too long, show fallback
-        loadingTimeout = setTimeout(() => {
-          if (mountedRef.current && isLoading) {
-            console.warn('3D loading timeout, switching to fallback');
+        console.log('Starting 3D load for:', cleanSmiles);
+
+        // Set a 6-second hard timeout
+        timeoutRef.current = setTimeout(() => {
+          console.warn('Loading timeout - switching to fallback');
+          if (isMounted) {
             setUseFallback(true);
             setIsLoading(false);
           }
-        }, 8000);
+        }, 6000);
 
-        // Check if 3Dmol is available
-        let attempts = 0;
-        while (!window.$3Dmol && attempts < 30) {
+        // Wait for 3Dmol to be available
+        let scriptAttempts = 0;
+        while (!window.$3Dmol && scriptAttempts < 30) {
           await new Promise(resolve => setTimeout(resolve, 100));
-          attempts++;
+          scriptAttempts++;
         }
 
         if (!window.$3Dmol) {
-          console.error('3Dmol.js not loaded');
-          throw new Error('3D visualization library not available');
+          throw new Error('3Dmol library not loaded');
         }
 
-        if (!mountedRef.current) return;
+        console.log('3Dmol loaded, waiting for container...');
 
-        // Wait for container
-        await new Promise(resolve => setTimeout(resolve, 300));
+        // Wait for container to be ready
+        await new Promise(resolve => setTimeout(resolve, 200));
 
-        if (!mountedRef.current || !containerRef.current) return;
+        if (!isMounted || !containerRef.current) {
+          console.log('Component unmounted or no container');
+          return;
+        }
 
-        // Clear container
+        // Clear and create viewer
         containerRef.current.innerHTML = '';
-
-        // Create viewer
         viewer = window.$3Dmol.createViewer(containerRef.current, {
           backgroundColor: 'white',
           antialias: true,
         });
         viewerRef.current = viewer;
 
-        console.log('Fetching molecule data for:', cleanSmiles);
+        console.log('Viewer created, fetching molecule data...');
 
-        // Fetch 3D structure
-        const molData = await fetchMoleculeData(cleanSmiles);
+        // Fetch molecule data with shorter timeout
+        const molData = await Promise.race([
+          fetchMoleculeData(cleanSmiles),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Fetch timeout')), 5000)
+          )
+        ]);
 
-        if (!mountedRef.current) return;
+        if (!isMounted) return;
 
         if (!molData) {
-          throw new Error('3D structure not available for this molecule');
+          console.log('No molecule data received');
+          throw new Error('Could not load 3D structure');
         }
 
-        // Add and style model
+        console.log('Molecule data received, rendering...');
+
+        // Add model and render
         viewer.addModel(molData, 'sdf');
         viewer.setStyle({}, {
           stick: { colorscheme: 'Jmol', radius: 0.15 },
@@ -91,12 +92,18 @@ export default function Molecule3D({ smiles = 'CCO' }) {
         viewer.zoomTo();
         viewer.render();
 
-        clearTimeout(loadingTimeout);
+        console.log('Render complete!');
+
+        // Clear timeout since we succeeded
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
 
         // Rotation animation
         let angle = 0;
         rotateInterval = setInterval(() => {
-          if (!mountedRef.current || !viewer) {
+          if (!isMounted || !viewer) {
             clearInterval(rotateInterval);
             return;
           }
@@ -106,16 +113,17 @@ export default function Molecule3D({ smiles = 'CCO' }) {
           if (angle >= 360) clearInterval(rotateInterval);
         }, 50);
 
-        // Fetch name
+        // Fetch name (non-blocking)
         fetchMoleculeName(cleanSmiles);
 
         setIsLoading(false);
-        setError(null);
 
       } catch (err) {
         console.error('3D loading error:', err);
-        clearTimeout(loadingTimeout);
-        if (mountedRef.current) {
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+        }
+        if (isMounted) {
           setUseFallback(true);
           setIsLoading(false);
         }
@@ -123,48 +131,42 @@ export default function Molecule3D({ smiles = 'CCO' }) {
     };
 
     const fetchMoleculeData = async (smilesStr) => {
-      // Try NCI Cactus first (usually more reliable)
+      // Try NCI Cactus first
       try {
-        console.log('Trying NCI Cactus...');
+        console.log('Attempting NCI Cactus...');
         const response = await fetch(
-          `https://cactus.nci.nih.gov/chemical/structure/${encodeURIComponent(smilesStr)}/file?format=sdf&get3d=true`,
-          { 
-            signal: AbortSignal.timeout(8000),
-            mode: 'cors'
-          }
+          `https://cactus.nci.nih.gov/chemical/structure/${encodeURIComponent(smilesStr)}/file?format=sdf&get3d=true`
         );
 
         if (response.ok) {
           const data = await response.text();
           if (data && data.length > 100 && data.includes('V2000')) {
-            console.log('Success from NCI Cactus');
+            console.log('✓ NCI Cactus success');
             return data;
           }
         }
+        console.log('✗ NCI Cactus failed');
       } catch (err) {
-        console.warn('NCI Cactus failed:', err.message);
+        console.warn('NCI Cactus error:', err.message);
       }
 
-      // Try PubChem as fallback
+      // Try PubChem
       try {
-        console.log('Trying PubChem...');
+        console.log('Attempting PubChem...');
         const response = await fetch(
-          `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smilesStr)}/record/SDF?record_type=3d`,
-          { 
-            signal: AbortSignal.timeout(8000),
-            mode: 'cors'
-          }
+          `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smilesStr)}/record/SDF?record_type=3d`
         );
 
         if (response.ok) {
           const data = await response.text();
           if (data && data.length > 100) {
-            console.log('Success from PubChem');
+            console.log('✓ PubChem success');
             return data;
           }
         }
+        console.log('✗ PubChem failed');
       } catch (err) {
-        console.warn('PubChem failed:', err.message);
+        console.warn('PubChem error:', err.message);
       }
 
       return null;
@@ -173,27 +175,25 @@ export default function Molecule3D({ smiles = 'CCO' }) {
     const fetchMoleculeName = async (smilesStr) => {
       try {
         const response = await fetch(
-          `https://cactus.nci.nih.gov/chemical/structure/${encodeURIComponent(smilesStr)}/iupac_name`,
-          { signal: AbortSignal.timeout(5000) }
+          `https://cactus.nci.nih.gov/chemical/structure/${encodeURIComponent(smilesStr)}/iupac_name`
         );
-
         if (response.ok) {
           const name = await response.text();
-          if (name && !name.toLowerCase().includes('not found') && mountedRef.current) {
+          if (name && !name.toLowerCase().includes('not found') && isMounted) {
             setMoleculeName(name.trim());
           }
         }
       } catch (err) {
-        console.warn('Name fetch failed');
+        // Silent fail for name
       }
     };
 
     loadMolecule();
 
     return () => {
-      mountedRef.current = false;
+      isMounted = false;
       if (rotateInterval) clearInterval(rotateInterval);
-      if (loadingTimeout) clearTimeout(loadingTimeout);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
       if (containerRef.current) {
         containerRef.current.innerHTML = '';
       }
@@ -206,10 +206,6 @@ export default function Molecule3D({ smiles = 'CCO' }) {
       viewerRef.current.zoomTo();
       viewerRef.current.render();
     }
-  };
-
-  const handleOpenExternal = () => {
-    window.open(`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(cleanSmiles)}/record/SDF?record_type=3d`, '_blank');
   };
 
   return (
@@ -259,7 +255,9 @@ export default function Molecule3D({ smiles = 'CCO' }) {
         ) : useFallback ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
             <div className="max-w-md">
-              <p className="text-gray-700 mb-4">Interactive 3D viewer temporarily unavailable</p>
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                <p className="text-gray-700 text-sm">3D viewer is temporarily unavailable or this molecule doesn't have 3D coordinates.</p>
+              </div>
               
                 href={`https://pubchem.ncbi.nlm.nih.gov/#query=${encodeURIComponent(cleanSmiles)}`}
                 target="_blank"
@@ -267,7 +265,7 @@ export default function Molecule3D({ smiles = 'CCO' }) {
                 className="inline-flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition-colors"
               >
                 <FiExternalLink />
-                View 3D Structure on PubChem
+                View on PubChem
               </a>
               <div className="mt-6 pt-4 border-t">
                 {moleculeName && (
